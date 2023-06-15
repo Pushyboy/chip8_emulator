@@ -10,7 +10,7 @@ use sdl2::rect::Rect;
 #[derive(Copy, Clone)]
 pub struct Point(pub i32, pub i32);
 
-struct Display {
+pub struct Display {
     pub canvas: render::Canvas<Window>,
 }
 

@@ -1,9 +1,11 @@
 mod cpu;
-use cpu::Chip_8;
+use cpu::{Chip_8, State};
 
-mod Display;
+mod display;
+use display::Display;
 
-mod Keyboard;
+mod keyboard;
+use keyboard::Keyboard;
 
 // use CPU::Chip_8;
 use std::env;
@@ -13,7 +15,9 @@ use std::time::{Duration, Instant};
 fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
 
-    // Move to Display
+    // Move Display to Chip8
+
+    let mut keyboard = Keyboard::new(&sdl_context).unwrap();
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
@@ -38,7 +42,10 @@ fn main() -> Result<(), String> {
             change = 5000.0;
         }
 
-        if cpu.state = 
+        // If awaiting for keypress
+        if cpu.state == State::INACTIVE && keyboard.is_pressed {
+            // Have to store it in vx
+        }
 
         // Update timers and accumulators
         lastTime = currTime;

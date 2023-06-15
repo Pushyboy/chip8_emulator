@@ -39,6 +39,7 @@ impl Stack {
     }
 }
 
+#[derive(PartialEq)]
 pub enum State {
     ACTIVE,
     INACTIVE,
@@ -138,11 +139,6 @@ impl Chip_8 {
 
     // Executes opcode
     pub fn execute(&mut self, op_code: u16) {
-
-        if let State::INACTIVE = self.state {
-            return;
-        }
-
         let v = &mut self.v;
         let pc = &mut self.pc;
 
@@ -180,7 +176,7 @@ impl Chip_8 {
             (0xE,   _, 0x9, 0xE) => self.skip_if_key(x),
             (0xE,   _, 0xA, 0x1) => self.skip_if_nkey(x),
             (0xF,   _, 0x0, 0x7) => v[x] = self.delay_timer,
-            (0xF,   _, 0x0, 0xA) => self.wait_for_key(),
+            (0xF,   _, 0x0, 0xA) => self.wait_for_key(x),
             (0xF,   _, 0x1, 0x5) => self.delay_timer = v[x],
             (0xF,   _, 0x1, 0x8) => self.sound_timer = v[x],
             (0xF,   _, 0x1, 0xE) => self.i += v[x] as u16,              // Might Overflow?????
@@ -383,11 +379,20 @@ impl Chip_8 {
 
     // Stop performing instructions until a key
     // is pressed so it can be stored in vx
-    fn wait_for_key(&mut self) {
+    fn wait_for_key(&mut self, x: usize) {
+        if self.state == State::INACTIVE {
+
+        } else {
+            self.state = State::INACTIVE;
+            self.pc -= 2;
+        }
+
         self.state = State::INACTIVE;
 
         // When you press a key, you can check if the state
-        // is inactive and set vx to if it it is
+        // is inactive and set vx to if it is and set it to inactive
+
+        // Have to find a way to store x
     }
 
     // Stores the BCD of the value in Vx in RAM
