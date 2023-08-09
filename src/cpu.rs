@@ -1,43 +1,19 @@
 use rand::Rng;
+use sdl2::pixels::Color;
 use std::fs::File;
 use std::io::Read;
 
-pub struct Stack {
-    data: [u16; 16], 
-    pointer: usize,
-}
+use sdl2::Sdl;
 
-impl Stack {
-    const STACK_SIZE: usize = 16;
+mod stack;
+use stack::Stack;
 
-    pub fn new() -> Stack {
-        Stack { 
-            data: [0; 16], 
-            pointer: 0 
-        }
-    }
+mod keyboard;
+use keyboard::Keyboard;
 
-    pub fn push(&mut self, item: u16) {
-        if self.pointer < Self::STACK_SIZE {
-            self.data[self.pointer] = item;
-            self.pointer += 1;
-        } else {
-            panic!("Stack Overflow.");
-        }
-    }
+mod display;
+use display::Display;
 
-    // TODO - Setting it to 0 might not be necessary
-    pub fn pop(&mut self) -> Option<u16> {
-        if self.pointer > 0 {
-            let temp = self.data[self.pointer - 1];
-            self.data[self.pointer - 1] = 0;
-            self.pointer -= 1;
-            Some(temp)
-        } else {
-            None
-        }
-    }
-}
 
 #[derive(PartialEq)]
 pub enum State {
@@ -46,7 +22,8 @@ pub enum State {
 }
 
 pub struct Chip_8 {
-    pub display: [[bool;64];32],
+    pub display: Display,
+    pub buffer: [[bool;64];32],
     pub ram: [u8; 4096],
     pub stack: Stack,
     pub v: [u8; 16],
@@ -54,14 +31,15 @@ pub struct Chip_8 {
     pub pc: u16,
     pub delay_timer: u8,
     pub sound_timer: u8,
-    pub keyboard: [bool; 16],
+    pub keyboard: Keyboard,
     pub state: State
 }
 
 impl Chip_8 {
-    pub fn build() -> Chip_8 {
+    pub fn build(sdl_context: &Sdl) -> Chip_8 {
         let mut cpu = Chip_8 {
-            display: [[false; 64]; 32],
+            display: Display::new(sdl_context).unwrap(),
+            buffer: [[false; 64]; 32],
             ram: [0; 4096],
             stack: Stack::new(),
             v: [0; 16],
@@ -69,7 +47,7 @@ impl Chip_8 {
             pc: 0x200,
             delay_timer: 0,
             sound_timer: 0,
-            keyboard: [false; 16],
+            keyboard: Keyboard::new(sdl_context).unwrap(),
             state: State::ACTIVE,
         };
 
@@ -98,14 +76,14 @@ impl Chip_8 {
             0xF0, 0x80, 0xF0, 0x80, 0x80  // F
         ];
 
-        for i in 0x0050..=0x009F {
+        for i in 0x00..0x50 {
             self.ram[i] = FONT[i];
         }
     }
 
     pub fn read_into_memory(&mut self, path: &str) ->  std::io::Result<()> {
         // Open ROM
-        let mut file = File::open("file")?;
+        let mut file = File::open(path)?;
 
         // Read ROM contents into a byte array
         let mut buffer = Vec::new();
@@ -133,12 +111,18 @@ impl Chip_8 {
         let ram = &self.ram;
         let loc = self.pc as usize;
 
+        // println!("First byte: {}", format!("{:X}", ram[loc]));
+        // println!("Second byte: {}", format!("{:X}", ram[loc+1]));
+
         let op_code = ((ram[loc] as u16) << 8) | (ram[loc + 1] as u16);
         self.execute(op_code); 
     }
 
     // Executes opcode
     pub fn execute(&mut self, op_code: u16) {
+
+        println!("Executing {}", format!("{:X}", op_code));
+
         let v = &mut self.v;
         let pc = &mut self.pc;
 
@@ -173,8 +157,8 @@ impl Chip_8 {
             (0xB,   _,   _,   _) => self.pc = (v[0] as u16) + nnn,
             (0xC,   _,   _,   _) => self.gen_random(x, kk),
             (0xD,   _,   _,   _) => self.draw(x, y, k as usize),
-            (0xE,   _, 0x9, 0xE) => self.skip_if_key(x),
-            (0xE,   _, 0xA, 0x1) => self.skip_if_nkey(x),
+            (0xE,   _, 0x9, 0xE) => self.skip_if_key(x),                    //TODO
+            (0xE,   _, 0xA, 0x1) => self.skip_if_nkey(x),                   //TODO
             (0xF,   _, 0x0, 0x7) => v[x] = self.delay_timer,
             (0xF,   _, 0x0, 0xA) => self.wait_for_key(x),
             (0xF,   _, 0x1, 0x5) => self.delay_timer = v[x],
@@ -189,7 +173,7 @@ impl Chip_8 {
         }
 
         // Increment pc if the code isnt 00EE 1NNN 2NNN
-        if op_code != 0x00EE || prefix != 1 || prefix != 2 {
+        if prefix != 0xB || prefix != 1 || prefix != 2 {
             self.pc += 2;
         }
 
@@ -205,39 +189,48 @@ impl Chip_8 {
         let start_row = (self.v[y] % 32) as usize;
 
         // Set VF to 0
-        self.v[0x0F] = 0;
+        self.v[0xF] = 0;
 
         // Read in each row as a byte
-        for i in 0..height {
+        'outer: for i in 0..height {
             let row = self.ram[start + i];
             
             // Read in each bit in the byte
             for j in 0..8 {
 
-                if (start_row + height) > 32 {
-                    continue;
-                } else if (start_column + j) > 64 {
+                let x = start_column + j;
+                let y = start_row + height;
+
+                if y > 32 {
+                    break 'outer;
+                } else if x > 64 {
                     break;
                 }
 
                 let curr_bit = (row >> (7-j)) & 0b1;
-                let curr_pixel = self.display[start_row + height][start_column + j];
+                let curr_pixel = self.buffer[y][x];
 
-                match curr_bit {
-                    0b0 => {
-
-                    },
-                    0b1 => (),
-                    _ => ()
+                if curr_bit == 0b1 {
+                    if curr_pixel {
+                        self.buffer[y][x] = false;
+                        self.display.draw_pixel(x as i32, y as i32, Color::BLACK);
+                        self.v[0xF] = 1;
+                    } else {
+                        self.buffer[y][x] = true;
+                        self.display.draw_pixel(x as i32, y as i32, Color::WHITE);
+                    }
                 }
             }
             
         }
+
+        self.display.canvas.present();
     }
 
     // Clear the display
     fn clear_display(&mut self) {
-        self.display = [[false; 64]; 32];
+        self.buffer = [[false; 64]; 32];
+        self.display.clear_screen();
     }
 
     // Return from a subroutine
@@ -313,7 +306,7 @@ impl Chip_8 {
         match (v[x] & 0x01) {
             0x01 => v[0x0F] = 1,
             0x00 => v[0x0F] = 0,
-            _ => (),
+            _ => {},
         }
         v[x] >>= 1;
     }
@@ -359,40 +352,43 @@ impl Chip_8 {
 
     fn skip_if_key(&mut self, x: usize) {
         let key = self.v[x];
-        if self.keyboard[key as usize] {
+        if self.keyboard.key_pressed(key) {
             self.pc += 2;
         }
     }
 
     fn skip_if_nkey(&mut self, x: usize) {
         let key = self.v[x];
-
-        if !self.keyboard[key as usize] {
+        if !self.keyboard.key_pressed(key) {
             self.pc += 2;
         }
     }
 
     // Sets i to the address of a font character
     fn get_font_key(&mut self, x: usize) {
-        self.i = 0x0050 + 5 * x as u16;
+        self.i = 5 * x as u16;
     }
 
-    // Stop performing instructions until a key
-    // is pressed so it can be stored in vx
+    // Stop reading instructions until a key is pressed
+    // Then, store it in Vx
     fn wait_for_key(&mut self, x: usize) {
-        if self.state == State::INACTIVE {
+        let keyboard = &mut self.keyboard;
 
-        } else {
-            self.state = State::INACTIVE;
-            self.pc -= 2;
+        // If the keyboard is not awaiting a press,
+        // make it await a press
+        if !keyboard.awaiting_press {
+            keyboard.awaiting_press = true;
         }
 
-        self.state = State::INACTIVE;
-
-        // When you press a key, you can check if the state
-        // is inactive and set vx to if it is and set it to inactive
-
-        // Have to find a way to store x
+        // If a key is pressed, 
+        match keyboard.key_press {
+            Some(key) => {
+                keyboard.awaiting_press = false;
+                keyboard.key_press = None;
+                self.v[x] = key;
+            },
+            None => self.pc -= 2, 
+        }
     }
 
     // Stores the BCD of the value in Vx in RAM
@@ -400,9 +396,9 @@ impl Chip_8 {
         let i = self.i as usize;
         let num = self.v[x];
 
-        let num_hun = num % 10;
+        let num_hun = num / 100;
         let num_ten = num / 10 % 10;
-        let num_one = num / 100 % 10;
+        let num_one = num % 10;
 
         self.ram[i] = num_hun;
         self.ram[i + 1] = num_ten;
@@ -428,9 +424,4 @@ impl Chip_8 {
     }
 
 
-}
-
-
-fn main() {
-    println!("Hello, world!");
 }

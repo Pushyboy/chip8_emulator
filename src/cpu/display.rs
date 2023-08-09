@@ -1,23 +1,19 @@
 extern crate sdl2;
 
-use sdl2::keyboard::Keycode;
 use sdl2::render;
 use sdl2::video::Window;
 use sdl2::Sdl;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 
-#[derive(Copy, Clone)]
-pub struct Point(pub i32, pub i32);
-
 pub struct Display {
     pub canvas: render::Canvas<Window>,
 }
 
 impl Display {
-    const PIXEL_SIZE: u32 = 10;
+    const PIXEL_SIZE: u32 = 20;
 
-    pub fn new(sdl_context : Sdl) -> Result<Display, String> {
+    pub fn new(sdl_context : &Sdl) -> Result<Display, String> {
         let video_subsystem = sdl_context.video()?;
 
         let window= video_subsystem
@@ -43,10 +39,8 @@ impl Display {
         Ok(Display { canvas })
     }
 
-    pub fn draw_pixel(&mut self, point: Point, color: Color) -> Result<(), String> {
+    pub fn draw_pixel(&mut self, x: i32, y: i32, color: Color) -> Result<(), String> {
         self.canvas.set_draw_color(color);
-
-        let Point(x, y) = point;
 
         self.canvas.fill_rect(Rect::new(
             x * Display::PIXEL_SIZE as i32,
@@ -56,5 +50,11 @@ impl Display {
         ))?;
 
         Ok(())
+    }
+
+    pub fn clear_screen(&mut self) {
+        self.canvas.set_draw_color(Color::BLACK);
+        self.canvas.clear();
+        self.canvas.present();
     }
 }
